@@ -1,0 +1,13 @@
+name: hyperos3_theme_studio
+description: HyperOS 3 Studio
+version: 3.0.0+1
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  archive: ^3.4.10
+  path_provider: ^2.1.2
+  permission_handler: ^11.3.0
+flutter:
+  uses-material-design: true
