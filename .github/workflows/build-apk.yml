@@ -11,17 +11,14 @@ jobs:
           java-version: '17'
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.0'
-          cache: true
-      - name: Fix Flutter structure
+          flutter-version: '3.24.5'
+          channel: 'stable'
+      - name: Fix and Build
         run: |
-          mv lib/main.dart /tmp/main.dart.bak
-          mv pubspec.yaml /tmp/pubspec.yaml.bak
+          rm -rf android
           flutter create . --project-name hyperos3_theme_studio --org com.fouad.hyperos --platforms android --no-pub
-          mv /tmp/pubspec.yaml.bak pubspec.yaml
-          mv /tmp/main.dart.bak lib/main.dart
-      - run: flutter pub get
-      - run: flutter build apk --release
+          flutter pub get
+          flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
           name: HyperOS3-APK
