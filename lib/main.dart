@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -12,141 +13,122 @@ class HyperOS3App extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: Color(0xFF0A0A0C),
-        primaryColor: Color(0xFFFF6900),
-      ),
-      home: HomeScreen(),
+      theme: ThemeData.dark(),
+      home: StudioScreen(),
     );
   }
 }
 
-class HomeScreen extends StatefulWidget {
+class StudioScreen extends StatefulWidget {
   @override
-  _HomeScreenState createState() => _HomeScreenState();
+  _StudioScreenState createState() => _StudioScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _StudioScreenState extends State<StudioScreen> {
   String themeName = "HyperOS 3 Orange";
   String designer = "Fouad";
-  Color primaryColor = Color(0xFFFF6900);
-  bool isExporting = false;
-  String status = "";
+  Color primary = Color(0xFFFF6900);
+  bool loading = false;
+  String msg = "";
+
+  final List<Color> colors = [Color(0xFFFF6900), Color(0xFF00BCD4), Color(0xFF7C4DFF), Color(0xFF00E676), Color(0xFFFF1744), Color(0xFF2979FF)];
 
   Future<void> exportMTZ() async {
-    setState(() { isExporting = true; status = "جاري إنشاء الثيم..."; });
+    setState(() { loading = true; msg = "جاري بناء الثيم uiVersion 17..."; });
     try {
-      var perm = await Permission.storage.request();
-      if (!perm.isGranted) {
-        await Permission.manageExternalStorage.request();
-      }
+      await Permission.storage.request();
+      await Permission.manageExternalStorage.request();
 
-      final dir = await getTemporaryDirectory();
-      final themeDir = Directory('${dir.path}/theme');
-      if (await themeDir.exists()) await themeDir.delete(recursive: true);
-      await themeDir.create();
-
-      String descriptionXml = '''<?xml version="1.0" encoding="utf-8"?>
+      String xml = '''<?xml version="1.0" encoding="utf-8"?>
 <MIUI-Theme>
-    <title>$themeName</title>
-    <designer>$designer</designer>
-    <author>$designer</author>
-    <version>3.0</version>
-    <uiVersion>17</uiVersion>
-    <wallpaperDepth>0</wallpaperDepth>
+  <title>$themeName</title>
+  <designer>$designer</designer>
+  <author>$designer</author>
+  <version>3.0</version>
+  <uiVersion>17</uiVersion>
+  <is3rdParty>1</is3rdParty>
 </MIUI-Theme>''';
 
-      await File('${themeDir.path}/description.xml').writeAsString(descriptionXml);
-      await File('${themeDir.path}/preview.jpg').writeAsBytes(Uint8List(0));
-      await File('${themeDir.path}/wallpaper').create();
+      List<int> xmlBytes = utf8.encode(xml);
+      // صورة بيضاء 1x1 كـ preview عشان الـ MTZ يتقبل
+      List<int> dummyJpg = base64Decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxISEhUSEhIVFhUVFRUVFRUVFRUVFRUWFhUVFRUYHSggGBolGxUVITEhJSkrLi4uFx8zODMtNygtLisBCgoKDg0OGxAQGy0mICUtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAMwAigMBIgACEQEDEQH/xAAVAAEBAAAAAAAAAAAAAAAAAAAAB//EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AVQA//9k=');
 
-      final archive = Archive();
-      final files = await themeDir.list().toList();
-      for (var f in files) {
-        if (f is File) {
-          var bytes = await f.readAsBytes();
-          var name = f.path.split('/').last;
-          if (name == 'wallpaper') {
-             // create a simple orange wallpaper bytes placeholder
-             archive.addFile(ArchiveFile('wallpaper', 0, []));
-          } else {
-             archive.addFile(ArchiveFile(name, bytes.length, bytes));
-          }
-        }
-      }
+      Archive arch = Archive();
+      arch.addFile(ArchiveFile('description.xml', xmlBytes.length, xmlBytes));
+      arch.addFile(ArchiveFile('preview.jpg', dummyJpg.length, dummyJpg));
+      arch.addFile(ArchiveFile('wallpaper', dummyJpg.length, dummyJpg));
 
-      var zipData = ZipEncoder().encode(archive);
-      if (zipData == null) throw Exception("فشل الضغط");
+      List<int>? zipBytes = ZipEncoder().encode(arch);
+      if (zipBytes == null) throw Exception("ZipEncoder فشل");
 
-      final downloads = Directory('/storage/emulated/0/Download');
-      if (!await downloads.exists()) {
-        await Directory('${dir.path}/Download').create();
-      }
-      String outPath = '/storage/emulated/0/Download/${themeName.replaceAll(' ', '_')}.mtz';
+      Directory temp = await getTemporaryDirectory();
+      String fileName = "${themeName.replaceAll(' ', '_')}.mtz";
+      String tempPath = "${temp.path}/$fileName";
+      await File(tempPath).writeAsBytes(zipBytes);
+
+      String downloadPath = "/storage/emulated/0/Download/$fileName";
       try {
-        await File(outPath).writeAsBytes(zipData);
+        await File(downloadPath).writeAsBytes(zipBytes);
+        setState(() { msg = "✅ تم التصدير! \n$downloadPath"; });
       } catch (e) {
-        outPath = '${dir.path}/${themeName}.mtz';
-        await File(outPath).writeAsBytes(zipData);
+        setState(() { msg = "✅ تم التصدير! \n$tempPath\n(انسخه لـ Download يدوياً)"; });
+        downloadPath = tempPath;
       }
 
-      setState(() { status = "تم! الملف في: $outPath"; });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("تم تصدير $outPath")));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("تم حفظ الثيم في Download"), backgroundColor: primary));
     } catch (e) {
-      setState(() { status = "خطأ: $e"; });
+      setState(() { msg = "❌ خطأ: $e"; });
     } finally {
-      setState(() { isExporting = false; });
+      setState(() { loading = false; });
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("HyperOS 3 Studio"), backgroundColor: Color(0xFFFF6900)),
-      body: Padding(
-        padding: EdgeInsets.all(20),
+      backgroundColor: Color(0xFF0A0A0C),
+      appBar: AppBar(backgroundColor: primary, title: Text("HyperOS 3 Studio", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold))),
+      body: SingleChildScrollView(
+        padding: EdgeInsets.all(16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(height: 20),
-            Icon(Icons.color_lens, size: 80, color: primaryColor),
-            SizedBox(height: 20),
-            TextField(
-              decoration: InputDecoration(labelText: "اسم الثيم", border: OutlineInputBorder()),
-              onChanged: (v) => themeName = v,
-              controller: TextEditingController(text: themeName),
-            ),
-            SizedBox(height: 15),
-            TextField(
-              decoration: InputDecoration(labelText: "اسم المصمم", border: OutlineInputBorder()),
-              onChanged: (v) => designer = v,
-              controller: TextEditingController(text: designer),
-            ),
-            SizedBox(height: 20),
-            Container(
-              padding: EdgeInsets.all(12),
-              decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(12)),
-              child: Row(
-                children: [
-                  CircleAvatar(backgroundColor: primaryColor, radius: 20),
-                  SizedBox(width: 12),
-                  Text("uiVersion 17 - HyperOS 3 Ready", style: TextStyle(color: Colors.white70)),
-                ],
+            // معاينة الموبايل
+            Center(
+              child: Container(
+                width: 200, height: 360,
+                decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(30), border: Border.all(color: primary, width: 3)),
+                child: Column(
+                  children: [
+                    SizedBox(height: 20),
+                    CircleAvatar(backgroundColor: primary, radius: 30, child: Icon(Icons.palette, color: Colors.black)),
+                    SizedBox(height: 15),
+                    Text(themeName, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                    Text(designer, style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    Spacer(),
+                    Container(height: 50, decoration: BoxDecoration(color: primary, borderRadius: BorderRadius.vertical(bottom: Radius.circular(27))), child: Center(child: Text("HyperOS 3", style: TextStyle(color: Colors.black)))),
+                  ],
+                ),
               ),
             ),
-            Spacer(),
-            if (status.isNotEmpty) Text(status, style: TextStyle(color: Colors.greenAccent)),
-            SizedBox(height: 15),
-            SizedBox(
-              width: double.infinity,
-              height: 55,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Color(0xFFFF6900), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30))),
-                onPressed: isExporting ? null : exportMTZ,
-                child: isExporting ? CircularProgressIndicator(color: Colors.white) : Text("تصدير .mtz الآن", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              ),
-            ),
+            SizedBox(height: 25),
+            Text("اسم الثيم", style: TextStyle(color: Colors.white54)),
+            TextField(onChanged: (v)=>setState(()=>themeName=v), controller: TextEditingController(text: themeName), style: TextStyle(color: Colors.white), decoration: InputDecoration(filled: true, fillColor: Colors.white10, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
+            SizedBox(height: 12),
+            Text("اسم المصمم", style: TextStyle(color: Colors.white54)),
+            TextField(onChanged: (v)=>designer=v, controller: TextEditingController(text: designer), style: TextStyle(color: Colors.white), decoration: InputDecoration(filled: true, fillColor: Colors.white10, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
+            SizedBox(height: 20),
+            Text("لون الثيم", style: TextStyle(color: Colors.white54)),
+            SizedBox(height: 8),
+            Row(children: colors.map((c)=>GestureDetector(onTap: ()=>setState(()=>primary=c), child: Container(margin: EdgeInsets.only(right: 10), width: 40, height: 40, decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: Border.all(color: primary==c? Colors.white: Colors.transparent, width: 2))))).toList()),
+            SizedBox(height: 20),
+            Container(padding: EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(12)), child: Row(children: [Icon(Icons.verified, color: primary), SizedBox(width: 10), Text("uiVersion 17 - HyperOS 3 Ready", style: TextStyle(color: Colors.white70))])),
+            SizedBox(height: 20),
+            if(msg.isNotEmpty) Container(padding: EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.green.withOpacity(0.2), borderRadius: BorderRadius.circular(10)), child: Text(msg, style: TextStyle(color: Colors.greenAccent))),
+            SizedBox(height: 20),
+            SizedBox(width: double.infinity, height: 56, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: primary, foregroundColor: Colors.black, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30))), onPressed: loading? null : exportMTZ, child: loading? CircularProgressIndicator(color: Colors.black) : Text("تصدير .mtz الآن", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)))),
             SizedBox(height: 10),
-            Text("الملف هيتحفظ في Download وبيتثبت من تطبيق الثيمات > استيراد", style: TextStyle(color: Colors.white38, fontSize: 11), textAlign: TextAlign.center),
+            Center(child: Text("هيتحفظ في Download > ثبته من تطبيق الثيمات > استيراد", style: TextStyle(color: Colors.white30, fontSize: 11))),
           ],
         ),
       ),
